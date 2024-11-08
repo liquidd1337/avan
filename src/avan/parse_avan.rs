@@ -8,6 +8,7 @@ type Float = f64;
 //type DataStr = String;
 
 use serde_aux::prelude::*;
+use serde_json::Value;
 
 #[derive(Deserialize, Serialize, PartialEq, Default, Debug)]
 #[serde(default)]
@@ -77,6 +78,11 @@ struct SellDay {
 
 pub async fn parse_avan() {
     let app_id = "252490";
+    let sleep_ms_on_net_error = 2 * 1000;
+    let sleep_ms_on_block = 25 * 6 * 1000;
+    
+    let steam_seller_ratio = 1. - 0.13;
+
     let url1 =
         format!("https://avan.market/v1/api/users/catalog?app_id={app_id}&currency=1&page=100");
     let body1 = get_http_body(&url1, ModeUTF8Check::Uncheck).await.unwrap();
@@ -85,7 +91,7 @@ pub async fn parse_avan() {
     let root: Root = match serde_json::from_str(&body1) {
         Ok(c) => c,
         Err(e) => {
-            println!("Ошибка чтения JSON : {} ", e);
+            println!("Ошибка чтения avan JSON : {} ", e);
             let root_0 = Root::default();
 
             /*
@@ -104,9 +110,104 @@ pub async fn parse_avan() {
     //assert_eq!(root.page_count, root.page);
 
     for item in root.data {
+
+        let url = format!(
+            "https://steamcommunity.com/market/listings/{app_id}/{}",
+            item.full_name
+        );
+        let url = url::Url::parse(&url).unwrap();
+
+        let mut body;
+        let line1 = loop {
+            body = match get_http_body(url.as_ref(), ModeUTF8Check::Uncheck).await {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("{e:?}, поспим {} ms ...", sleep_ms_on_net_error);
+                    tokio::time::sleep(std::time::Duration::from_millis(sleep_ms_on_net_error)).await;
+                    continue;
+                }
+            };
+
+            let substr1 = "line1=";
+            let substr2 = "g_timePriceHistoryEarliest";
+            let Some(line1) = substr(&body, substr1, substr2) else {
+                eprintln!(
+                    "{} не нашли line1, длина body {}, поспим {} ms ...",
+                    item.full_name,
+                    body.len(),
+                    sleep_ms_on_block
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(sleep_ms_on_block)).await;
+                continue;
+            };
+            break (line1);
+        };
+
+        let line1 = line1.trim();
+        let line1 = &line1[..line1.len() - 1];
+
+        let steam_sell = match serde_json::from_str::<Vec<SellDay>>(line1) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{} json::from_str: {}", item.full_name, e);
+                continue;
+            }
+        };
+
+        let to_data = chrono::offset::Local::now()
+            .date_naive()
+            .checked_sub_months(Months::new(1))
+            .unwrap();
+        let mut sum_cnt = 0.;
+        let mut sum_sum = 0.;
+        let mut max_price: Float = 0.;
+        let mut min_price: Float = 1000000.;
+
+        for steam_day in steam_sell.iter().rev() {
+            let (date, _) = NaiveDate::parse_and_remainder(&steam_day.data, "%b %d %Y").unwrap();
+
+            if date < to_data {
+                break;
+            }
+            sum_cnt += steam_day.count;
+            sum_sum += steam_day.count * steam_day.price;
+            max_price = max_price.max(steam_day.price);
+            min_price = min_price.min(steam_day.price);
+        }
+
+        let Some(item_id) = find_steam_item_id(&body) else {
+            continue;
+        };
+
+        let Some(steam_first_sell_price) = item_first_sell_price(&item_id).await else {
+            continue;
+        };
+
+        //dbg!(sum_cnt, sum_sum, sum_sum / sum_cnt, min_price, max_price);
+
+        let avan_price = if !item.variants.is_empty() {
+            item.variants[0].sell_price
+        } else {
+            0.0
+        };
+
+        println!(
+            "{} :{} - тек {} приб {:.2} кол {:.0} сумма {:.2} сред {:.2} мин {} макс {}",
+            item.full_name,
+            avan_price,
+            steam_first_sell_price,
+            steam_first_sell_price * steam_seller_ratio - avan_price,
+            sum_cnt,
+            sum_sum,
+            sum_sum / sum_cnt,
+            min_price,
+            max_price
+        );
+
         get_steam_info(&item).await;
         item_orders_histogram(&item).await;
         //tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
+
     }
 }
 
@@ -119,9 +220,17 @@ pub fn substr<'a>(str: &'a str, substr1: &str, substr2: &str) -> Option<&'a str>
     let Some(end_pos) = next_str.find(substr2) else {
         return None;
     };
-    let item_id = &next_str[..end_pos];
-    Some(item_id)
+    Some(&next_str[..end_pos])
 }
+
+
+fn find_steam_item_id(body: &str) -> Option<String> {
+    // Market_LoadOrderSpread( 176250984 );
+    let substr1 = "Market_LoadOrderSpread(";
+    let substr2 = ")";
+    let Some(item_id) = substr(body, substr1, substr2) else {
+        return None;
+    };
 
 async fn get_steam_info(item: &Item) {
     let app_id = "252490";
@@ -224,20 +333,35 @@ async fn item_orders_histogram(item: &Item) {
             return;
         };
 
-        let item_id = String::from(item_id);
-        let item_id = item_id.trim();
-        dbg!(&item_id);
+
+    let item_id = item_id.trim();
+    let item_id = String::from(item_id);
+    Some(item_id)
+}
+
+async fn item_first_sell_price(item_id: &str) -> Option<f64> {
+    let body = item_orders_histogram(item_id).await;
+    let v: Value = serde_json::from_str(&body).unwrap();
+    let a = v.get("sell_order_graph").unwrap().as_array().unwrap();
+    let ret = a[0][0].as_f64();
+    //dbg!(ret);
+    ret
+}
 
 
+async fn item_orders_histogram(item_id: &str) -> String {
+    let url = format!("https://steamcommunity.com/market/itemordershistogram?country=UA&language=russian&currency=1&item_nameid={item_id}");
+    let body = get_http_body(&url, ModeUTF8Check::Uncheck).await.unwrap();
+    body
 
-        dbg!(url);
-        let v: Value = serde_json::from_str(&body).unwrap();
-        let body = serde_json::to_string_pretty(&v).unwrap();
-        let file_name = item.full_name.replace(" ", "_")+".json";
-        let mut f = fs::File::create(&file_name).expect(&format!("создаем файл {file_name}"));
-        f.write_all(body.as_bytes()).expect(&format!("пишем body в файл {file_name}"));
-        println!("записали в файл {file_name}... спим 2 минуты...");
 
+    //dbg!(url);
+    //let v: Value = serde_json::from_str(&body).unwrap();
+    //let body = serde_json::to_string_pretty(&v).unwrap();
+    /*let file_name = item.full_name.replace(" ", "_")+".json";
+    let mut f = fs::File::create(&file_name).expect(&format!("создаем файл {file_name}"));
+    f.write_all(body.as_bytes()).expect(&format!("пишем body в файл {file_name}"));
+    println!("записали в файл {file_name}... спим 2 минуты...");*/
 }
 
 /*fn add_default(a: &mut Value, def: &Value) {

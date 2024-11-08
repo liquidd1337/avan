@@ -35,6 +35,20 @@ pub async fn get_http_body(url: &str, mode_utf8_check: ModeUTF8Check) -> io::Res
     // Build the hyper client from the HTTPS connector.
     let client: Client<_, Empty<Bytes>> = Client::builder(TokioExecutor::new()).build(https);
 
+    /*
+        let handle = core.handle();
+        let proxy = {
+            let proxy_uri ="http://<your proxy>:port".parse().unwrap();
+            let mut proxy = Proxy::new(Intercept::All, proxy_uri);
+            proxy.set_authorization(Basic{
+                username: "your username",
+                password: Some("your passwd"),
+            });
+            let http_connector = HttpConnector::new(4, &handle);
+            ProxyConnector::from_proxy(http_connector, proxy).unwrap()
+        };
+        let client2 = hyper::Client::configure().connector(proxy).build(&handle);
+    */
     // Prepare a chain of futures which sends a GET request, inspects
     // the returned headers, collects the whole body and prints it to
     // stdout.
@@ -47,7 +61,14 @@ pub async fn get_http_body(url: &str, mode_utf8_check: ModeUTF8Check) -> io::Res
         .method(Method::GET)
         .uri(url)
         .body(Empty::new())
-        .expect("request builder");
+        .map_err(|e| {
+            error(format!(
+                "Request builder: {e:?}, url:{url}, url len:{}, url parse: {:?}",
+                url.len(),
+                url::Url::parse(url)
+            ))
+        })?;
+    //é
 
     let fut = async move {
         let res = client
