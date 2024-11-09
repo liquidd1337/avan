@@ -189,11 +189,12 @@ pub async fn parse_avan() {
         };
 
         println!(
-            "{} :{} - тек {} приб {:.2} кол {:.0} сумма {:.2} сред {:.2} мин {} макс {}",
+            "{} :Цена аван {} - Цена стима {} Прибыль  {:.2}% Кол-во продаж в неделю {:.0} 
+            сумма {:.2} сред {:.2} мин {} макс {}",
             item.full_name,
             avan_price,
             steam_first_sell_price,
-            steam_first_sell_price * steam_seller_ratio - avan_price,
+            (steam_first_sell_price * steam_seller_ratio / avan_price - 1.0) * 100.0,
             sum_cnt,
             sum_sum,
             sum_sum / sum_cnt,
