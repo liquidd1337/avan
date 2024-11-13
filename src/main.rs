@@ -3,5 +3,5 @@ pub mod client_http2;
 
 #[tokio::main]
 async fn main() {
-    avan::parse_avan::parse_avan().await;
+    println!("{}", avan::read_config::get_trade_url());
 }
