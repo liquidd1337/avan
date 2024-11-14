@@ -1,0 +1,5 @@
+API Key Steam: " "
+Ссылка на обмен: "asdasdasd"
+Желаемый % пополнения: "40"
+login: " "
+pass: " "
