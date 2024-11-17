@@ -1,7 +1,9 @@
 pub mod avan;
 pub mod client_http2;
 
+#[tokio::main]
+async fn main() {
 
-fn main() {
-    println!("{}", avan::read_config::get_percent_value());
+    println!("{}", avan::read_config::get_smp_value());
+    //avan::parse_avan::parse_avan().await;
 }

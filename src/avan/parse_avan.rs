@@ -8,7 +8,7 @@ type DataStr = String;
 
 use serde_aux::prelude::*;
 use serde_json::Value;
-
+use crate::avan::read_config::{get_percent_value, get_smp_value};
 #[derive(Deserialize, Serialize, PartialEq, Default, Debug)]
 #[serde(default)]
 pub struct Root {
@@ -187,20 +187,23 @@ pub async fn parse_avan() {
         } else {
             0.0
         };
-
-        println!(
-            "{} :Цена аван {} - Цена стима {} Прибыль {:.2}% Кол-во продаж в неделю {:.0} 
+        let profit_percent = (steam_first_sell_price * steam_seller_ratio / avan_price - 1.0) * 100.0;
+        if profit_percent > get_percent_value() && sum_cnt > get_smp_value() {
+           println!(
+            "{} :Цена аван {} - Цена стима {} Прибыль {:.2}% Кол-во продаж в месяц {:.0} 
             сумма {:.2} сред {:.2} мин {} макс {}",
             item.full_name,
             avan_price,
             steam_first_sell_price,
-            (steam_first_sell_price * steam_seller_ratio / avan_price - 1.0) * 100.0,
+            profit_percent,
             sum_cnt,
             sum_sum,
             sum_sum / sum_cnt,
             min_price,
             max_price
-        );
+        ); 
+        } 
+        
     }
 }
 

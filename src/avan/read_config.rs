@@ -30,9 +30,16 @@ pub fn get_percent_value() -> f64 {
         .unwrap_or(0.0)
 }
 
+pub fn get_smp_value() -> f64 {
+    read_config("Кол-во продаж в месяц: \"")
+        .and_then(|val| val.parse().ok())
+        .unwrap_or(0.0)
+}
+
 pub fn get_login() -> String {
     read_config("login: \"").unwrap_or_default()
 }
+
 
 pub fn get_password() -> String {
     read_config("pass: \"").unwrap_or_default()
